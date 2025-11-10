@@ -1,11 +1,14 @@
 name: Deploy to VPS
+
 on:
   push:
     branches:
       - main
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -13,32 +16,54 @@ jobs:
       - name: Setup SSH key
         run: |
           mkdir -p ~/.ssh
-          echo "${{secrets.SSH_PRIVATE_KEY}}" > ~/.ssh/id_rsa
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
         shell: bash
 
       - name: Deploy to server
         env:
-          HOST: ${{secrets.HOST}}
-          USER: ${{secrets.USERNAME}}
-          APP_DIR: /ci_cd
-          PORT: ${{secrets.PORT}}
+          HOST: ${{ secrets.HOST }}
+          USER: ${{ secrets.USERNAME }}
+          APP_DIR: /home/${{ secrets.USERNAME }}/server_qurish
+          PORT: ${{ secrets.PORT }}
         run: |
-          ssh-keyscan -H $HOST >> ~/.ssh/known_hosts
+          set -e
+          echo "🚀 Starting deploy process..."
+
           ssh $USER@$HOST "
-            if [ ! -d $APP_DIR ]; then
-              mkdir -p $APP_DIR
-              git clone https://github.com/shokhDeveloper/11.git $APP_DIR
+            set -e
+            echo '🧩 Checking repository...'
+
+            # Agar .git yo'q bo‘lsa, yangidan clone qilinadi
+            if [ ! -d '$APP_DIR/.git' ]; then
+              echo '📦 Cloning repository...'
+              rm -rf '$APP_DIR'
+              git clone -b main https://github.com/shokhDeveloper/11.git '$APP_DIR'
             else
-              cd $APP_DIR
-              git pull origin main
+              echo '🔄 Updating existing repository...'
+              cd '$APP_DIR'
+              git fetch origin main
+              git reset --hard origin/main
             fi
 
-            cd $APP_DIR
-            echo 'PORT=${PORT}' > .env
-            npm install
+            cd '$APP_DIR'
+
+            if [ ! -f 'package.json' ]; then
+              echo '❌ Error: package.json topilmadi. Clone noto‘g‘ri bo‘lgan.'
+              exit 1
+            fi
+
+            echo '⚙️ Creating .env file...'
+            echo 'PORT=$PORT' > .env
+
+            echo '📦 Installing dependencies...'
+            npm install --legacy-peer-deps
+
+            echo '🏗️ Building project...'
             npm run build
 
+            echo '🚀 Starting or restarting PM2 app...'
             if pm2 list | grep -q 'ci_cd_app'; then
               pm2 restart ci_cd_app
             else
@@ -46,5 +71,56 @@ jobs:
             fi
 
             pm2 save
+            echo '✅ Deployment completed successfully!'
           "
         shell: bash
+# name: Deploy to VPS
+# on:
+#   push:
+#     branches:
+#       - main
+# jobs:
+#   deploy:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Checkout repository
+#         uses: actions/checkout@v4
+
+#       - name: Setup SSH key
+#         run: |
+#           mkdir -p ~/.ssh
+#           echo "${{secrets.SSH_PRIVATE_KEY}}" > ~/.ssh/id_rsa
+#           chmod 600 ~/.ssh/id_rsa
+#         shell: bash
+
+#       - name: Deploy to server
+#         env:
+#           HOST: ${{secrets.HOST}}
+#           USER: ${{secrets.USERNAME}}
+#           APP_DIR: /server_qurish
+#           PORT: ${{secrets.PORT}}
+#         run: |
+#           ssh-keyscan -H $HOST >> ~/.ssh/known_hosts
+#           ssh $USER@$HOST "
+#             if [ ! -d $APP_DIR ]; then
+#               mkdir -p $APP_DIR
+#               git clone https://github.com/shokhDeveloper/11.git $APP_DIR
+#             else
+#               cd $APP_DIR
+#               git pull origin main
+#             fi
+
+#             cd $APP_DIR
+#             echo 'PORT=${PORT}' > .env
+#             npm install
+#             npm run build
+
+#             if pm2 list | grep -q 'ci_cd_app'; then
+#               pm2 restart ci_cd_app
+#             else
+#               pm2 start dist/main.js --name ci_cd_app
+#             fi
+
+#             pm2 save
+#           "
+#         shell: bash
